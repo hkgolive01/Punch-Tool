@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Punch Tool</title>
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --panel: #2d2d2d;
+            --primary: #3b82f6;
+            --selected: #00d2ff;
+            --text: #ffffff;
+            --danger: #ef4444;
+            --success: #10b981;
+            --warning: #f59e0b;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* --- 1. Toolbar (Larger Fonts) --- */
+        .toolbar {
+            height: 80px; /* Increased height */
+            background: var(--panel);
+            border-bottom: 1px solid #444;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 15px;
+            z-index: 100;
+            font-size: 16px; /* Base font size increase */
+            flex-shrink: 0;
+            overflow-x: auto; /* Allow scroll on small screens */
+        }
+
+        .btn {
+            padding: 10px 20px; /* Larger buttons */
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 16px; /* Larger text */
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: 0.2s;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-warning { background: var(--warning); color: #222; } /* Duplicate Btn */
+        .btn-warning:hover { background: #d97706; }
+        .btn-outline { background: transparent; border: 2px solid #666; color: #ccc; }
+        .btn-outline:hover { border-color: #fff; color: #fff; }
+
+        .separator { width: 2px; height: 40px; background: #555; margin: 0 5px; }
+
+        /* Input Groups (Larger) */
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .input-group label { 
+            color: #ccc; 
+            font-weight: bold; 
+            font-size: 18px; /* Bigger Labels */
+        }
+        .input-group input {
+            width: 70px; /* Wider inputs */
+            padding: 8px;
+            font-size: 18px; /* Bigger Numbers */
+            background: #111;
+            border: 2px solid #444;
+            color: var(--selected);
+            border-radius: 6px;
+            text-align: right;
+        }
+        .input-group input:disabled {
+            color: #555;
+            border-color: #333;
+            background: #222;
+        }
+
+        /* --- 2. Workspace (Layout Fix) --- */
+        .workspace {
+            flex: 1;
+            overflow: auto; /* Enable scrolling */
+            position: relative;
+            background: #1a1a1a;
+            /* Checkerboard pattern */
+            background-image: 
+                linear-gradient(45deg, #252525 25%, transparent 25%), 
+                linear-gradient(-45deg, #252525 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #252525 75%), 
+                linear-gradient(-45deg, transparent 75%, #252525 75%);
+            background-size: 20px 20px;
+            
+            /* KEY FIX: Flex + Auto Margin guarantees padding on all sides */
+            display: flex;
+            padding: 50px; /* Big padding around image */
+        }
+
+        #editor-stage {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            /* KEY FIX: Centers content if small, allows scroll if big */
+            margin: auto; 
+            flex-shrink: 0; 
+        }
+
+        #bg-image {
+            display: block;
+            pointer-events: none;
+        }
+
+        /* --- 3. The Punch Box --- */
+        .punch-box {
+            position: absolute;
+            background: rgba(255, 0, 0, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            cursor: move;
+            box-sizing: border-box;
+        }
+
+        .punch-box.selected {
+            border: 3px solid var(--selected);
+            background: rgba(0, 210, 255, 0.15);
+            z-index: 100;
+        }
+
+        /* Resize Handles */
+        .resizer {
+            position: absolute;
+            background: transparent;
+            transition: background 0.1s;
+        }
+        .resizer:hover { background: rgba(0, 210, 255, 0.6); }
+
+        /* Make handles thicker for easier grabbing */
+        .resizer-n { top: -8px; left: 0; width: 100%; height: 16px; cursor: n-resize; }
+        .resizer-s { bottom: -8px; left: 0; width: 100%; height: 16px; cursor: s-resize; }
+        .resizer-e { top: 0; right: -8px; width: 16px; height: 100%; cursor: e-resize; }
+        .resizer-w { top: 0; left: -8px; width: 16px; height: 100%; cursor: w-resize; }
+
+        .corner {
+            position: absolute;
+            width: 12px; height: 12px; /* Bigger corners */
+            background: white;
+            border: 1px solid #000;
+            z-index: 10;
+        }
+        .punch-box.selected .corner { background: var(--selected); }
+
+        .corner-nw { top: -8px; left: -8px; cursor: nw-resize; }
+        .corner-ne { top: -8px; right: -8px; cursor: ne-resize; }
+        .corner-sw { bottom: -8px; left: -8px; cursor: sw-resize; }
+        .corner-se { bottom: -8px; right: -8px; cursor: se-resize; }
+
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <h3 style="margin:0; font-size:20px; color:white;">MultiPunch</h3>
+
+        <input type="file" id="fileInput" accept="image/*" style="display:none">
+        <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">📂 Import IMG</button>
+        <button class="btn btn-primary" id="addBoxBtn">➕ Add Box</button>
+
+        <div class="separator"></div>
+
+        <button class="btn btn-warning" id="dupBoxBtn" style="display:none;">📄 Duplicate</button>
+        <button class="btn btn-danger" id="delBoxBtn" style="display:none;">🗑️ Delete</button>
+
+        <div class="separator"></div>
+
+        <div class="input-group">
+            <label>X</label>
+            <input type="number" id="inpX" disabled>
+        </div>
+        <div class="input-group">
+            <label>Y</label>
+            <input type="number" id="inpY" disabled>
+        </div>
+        <div class="input-group">
+            <label>W</label>
+            <input type="number" id="inpW" disabled>
+        </div>
+        <div class="input-group">
+            <label>H</label>
+            <input type="number" id="inpH" disabled>
+        </div>
+        <div class="input-group" style="margin-left:10px;">
+            <label>Radius</label>
+            <input type="number" id="inpR" value="30" min="0">
+        </div>
+
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary" id="downloadBtn" style="background:var(--success); font-size: 18px; padding: 10px 30px;">⬇ DOWNLOAD PNG</button>
+    </div>
+
+    <div class="workspace" id="workspace">
+        <div id="editor-stage" style="display:none;">
+            <img id="bg-image" src="">
+            </div>
+        <div id="empty-state" style="font-size: 20px; color:#666; margin:auto;">
+            Click "Import IMG" to start.
+        </div>
+    </div>
+
+    <canvas id="exportCanvas" style="display:none;"></canvas>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const editorStage = document.getElementById('editor-stage');
+    const bgImage = document.getElementById('bg-image');
+    
+    // Buttons
+    const addBoxBtn = document.getElementById('addBoxBtn');
+    const delBoxBtn = document.getElementById('delBoxBtn');
+    const dupBoxBtn = document.getElementById('dupBoxBtn'); // Duplicate Button
+    const downloadBtn = document.getElementById('downloadBtn');
+    
+    const workspace = document.getElementById('workspace');
+    const exportCanvas = document.getElementById('exportCanvas');
+
+    // Inputs
+    const inputs = {
+        x: document.getElementById('inpX'),
+        y: document.getElementById('inpY'),
+        w: document.getElementById('inpW'),
+        h: document.getElementById('inpH'),
+        r: document.getElementById('inpR')
+    };
+
+    let currentImg = null;
+    let selectedBox = null;
+    const defaultRadius = 30;
+
+    // --- 1. Import Image ---
+    fileInput.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if(!file) return;
+
+        const reader = new FileReader();
+        reader.onload = evt => {
+            currentImg = new Image();
+            currentImg.onload = () => {
+                editorStage.style.display = 'block';
+                editorStage.style.width = currentImg.width + 'px';
+                editorStage.style.height = currentImg.height + 'px';
+                bgImage.src = currentImg.src;
+                document.getElementById('empty-state').style.display = 'none';
+
+                // Clear
+                document.querySelectorAll('.punch-box').forEach(b => b.remove());
+                selectBox(null);
+            };
+            currentImg.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // --- 2. Add / Duplicate Logic ---
+    addBoxBtn.addEventListener('click', () => {
+        if(!currentImg) { alert('Please import an image first.'); return; }
+        // Offset for new boxes so they don't hide each other
+        const count = document.querySelectorAll('.punch-box').length;
+        createBox(50 + (count * 20), 50 + (count * 20), 480, 700);
+    });
+
+    // Duplicate Function
+    dupBoxBtn.addEventListener('click', () => {
+        if(!selectedBox) return;
+
+        // Get current properties
+        const x = parseFloat(selectedBox.style.left);
+        const y = parseFloat(selectedBox.style.top);
+        const w = parseFloat(selectedBox.style.width);
+        const h = parseFloat(selectedBox.style.height);
+        const r = selectedBox.style.borderRadius; // String like "30px"
+
+        // Create new box offset by 10px
+        const newBox = createBox(x + 10, y + 10, w, h);
+        
+        // Apply same radius
+        if(newBox) {
+            newBox.style.borderRadius = r;
+            // Also sync the radius input if we just selected it
+            inputs.r.value = parseInt(r); 
+        }
+    });
+
+    function createBox(x, y, w, h) {
+        const box = document.createElement('div');
+        box.className = 'punch-box';
+        box.style.left = x + 'px';
+        box.style.top = y + 'px';
+        box.style.width = w + 'px';
+        box.style.height = h + 'px';
+        
+        // Use global input radius for new box, or default 30
+        const r = inputs.r.value || defaultRadius;
+        box.style.borderRadius = r + 'px';
+
+        box.innerHTML = `
+            <div class="resizer resizer-n" data-dir="n"></div>
+            <div class="resizer resizer-s" data-dir="s"></div>
+            <div class="resizer resizer-e" data-dir="e"></div>
+            <div class="resizer resizer-w" data-dir="w"></div>
+            <div class="corner corner-nw" data-dir="nw"></div>
+            <div class="corner corner-ne" data-dir="ne"></div>
+            <div class="corner corner-sw" data-dir="sw"></div>
+            <div class="corner corner-se" data-dir="se"></div>
+        `;
+
+        editorStage.appendChild(box);
+        initBoxEvents(box);
+        selectBox(box);
+        return box;
+    }
+
+    // --- 3. Selection ---
+    function selectBox(box) {
+        document.querySelectorAll('.punch-box').forEach(b => b.classList.remove('selected'));
+        selectedBox = box;
+
+        if(box) {
+            box.classList.add('selected');
+            
+            // Sync Inputs
+            inputs.x.value = parseInt(box.style.left);
+            inputs.y.value = parseInt(box.style.top);
+            inputs.w.value = parseInt(box.style.width);
+            inputs.h.value = parseInt(box.style.height);
+            inputs.r.value = parseInt(box.style.borderRadius) || 0;
+
+            // Enable Controls
+            Object.values(inputs).forEach(inp => inp.disabled = false);
+            delBoxBtn.style.display = 'flex';
+            dupBoxBtn.style.display = 'flex';
+        } else {
+            // Disable Controls
+            Object.values(inputs).forEach(inp => {
+                inp.value = '';
+                if(inp.id !== 'inpR') inp.disabled = true;
+            });
+            delBoxBtn.style.display = 'none';
+            dupBoxBtn.style.display = 'none';
+        }
+    }
+
+    // Click Background to Deselect
+    workspace.addEventListener('mousedown', (e) => {
+        if(e.target === workspace) selectBox(null);
+    });
+
+    // --- 4. Delete Logic ---
+    const deleteAction = () => {
+        if(selectedBox) {
+            selectedBox.remove();
+            selectBox(null);
+        }
+    };
+    delBoxBtn.addEventListener('click', deleteAction);
+    window.addEventListener('keydown', (e) => {
+        if(e.key === 'Delete') deleteAction();
+    });
+
+    // --- 5. Drag & Resize & Input Sync ---
+    Object.values(inputs).forEach(inp => {
+        inp.addEventListener('input', () => {
+            if(!selectedBox) return;
+            selectedBox.style.left = inputs.x.value + 'px';
+            selectedBox.style.top = inputs.y.value + 'px';
+            selectedBox.style.width = inputs.w.value + 'px';
+            selectedBox.style.height = inputs.h.value + 'px';
+            selectedBox.style.borderRadius = inputs.r.value + 'px';
+        });
+    });
+
+    function initBoxEvents(box) {
+        box.addEventListener('mousedown', e => {
+            e.stopPropagation();
+            selectBox(box);
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const rect = {
+                x: parseFloat(box.style.left),
+                y: parseFloat(box.style.top),
+                w: parseFloat(box.style.width),
+                h: parseFloat(box.style.height)
+            };
+
+            const target = e.target;
+            const isResizer = target.classList.contains('resizer') || target.classList.contains('corner');
+            const dir = target.dataset.dir || null;
+
+            const onMouseMove = (moveEvent) => {
+                const dx = moveEvent.clientX - startX;
+                const dy = moveEvent.clientY - startY;
+
+                if (!isResizer) {
+                    // Move
+                    box.style.left = (rect.x + dx) + 'px';
+                    box.style.top = (rect.y + dy) + 'px';
+                } else {
+                    // Resize
+                    if (dir.includes('e')) box.style.width = Math.max(20, rect.w + dx) + 'px';
+                    if (dir.includes('s')) box.style.height = Math.max(20, rect.h + dy) + 'px';
+                    if (dir.includes('w')) {
+                        const newW = Math.max(20, rect.w - dx);
+                        box.style.width = newW + 'px';
+                        box.style.left = (rect.x + (rect.w - newW)) + 'px';
+                    }
+                    if (dir.includes('n')) {
+                        const newH = Math.max(20, rect.h - dy);
+                        box.style.height = newH + 'px';
+                        box.style.top = (rect.y + (rect.h - newH)) + 'px';
+                    }
+                }
+                
+                // Live Update Inputs
+                inputs.x.value = Math.round(parseFloat(box.style.left));
+                inputs.y.value = Math.round(parseFloat(box.style.top));
+                inputs.w.value = Math.round(parseFloat(box.style.width));
+                inputs.h.value = Math.round(parseFloat(box.style.height));
+            };
+
+            const onMouseUp = () => {
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+    }
+
+    // --- 6. Download ---
+    downloadBtn.addEventListener('click', () => {
+        if(!currentImg) return;
+        exportCanvas.width = currentImg.width;
+        exportCanvas.height = currentImg.height;
+        const ctx = exportCanvas.getContext('2d');
+
+        ctx.clearRect(0,0, exportCanvas.width, exportCanvas.height);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(currentImg, 0, 0);
+        ctx.globalCompositeOperation = 'destination-out';
+        
+        document.querySelectorAll('.punch-box').forEach(box => {
+            const x = parseFloat(box.style.left);
+            const y = parseFloat(box.style.top);
+            const w = parseFloat(box.style.width);
+            const h = parseFloat(box.style.height);
+            const r = parseFloat(box.style.borderRadius) || 0;
+
+            ctx.beginPath();
+            if(ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+            else ctx.rect(x, y, w, h);
+            ctx.fill();
+        });
+
+        const link = document.createElement('a');
+        link.download = 'punched_image_HD.png';
+        link.href = exportCanvas.toDataURL('image/png');
+        link.click();
+    });
+
+</script>
+</body>
+</html>
